@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # 1. SHARED INFERENCE SERVER (The Collective Brain)
+  # -----------------------------------------------------------------------------
+  # Hosts the Large Language Model (LLM) API for all agents.
+  # REQUIRES: GPU access (runtime: nvidia)
+  # =============================================================================
+  inference-server:
+    # 💡 REPLACE with your desired model image (e.g., vllm/vllm, deepseek/deepseek-v3)
+    image: <MODEL_IMAGE>:<TAG>
+    container_name: collective-inference-server
+    runtime: nvidia # Required for GPU access
+    environment:
+      # 💡 CONFIGURE model parameters
+      - NVIDIA_VISIBLE_DEVICES=0
+      - MODEL_NAME=<MODEL_NAME_HERE>
+    ports:
+      - "8000:8000" # Expose the LLM API port
+    volumes:
+      # 💡 OPTIONAL: Mount a local directory to store model weights
+      - ./models:/models
+    networks:
+      - collective-network
+
+  # =============================================================================
+  # 2. REDIS COMMUNICATION BUS (Real-time Communication)
+  # -----------------------------------------------------------------------------
+  # Used for asynchronous Pub/Sub communication and real-time state sharing.
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: collective-redis-bus
+    # ports:
+    #   - "6379:6379" # Uncomment only if external access is needed
+    volumes:
+      - redis-data:/data
+    networks:
+      - collective-network
+    command: redis-server --appendonly yes
+
+  # =============================================================================
+  # 3. MONGODB - Collective Memory (Persistent Storage)
+  # -----------------------------------------------------------------------------
+  # Used for long-term storage of work logs, project analysis, and agent memories.
+  # =============================================================================
+  mongodb:
+    image: mongo:7
+    container_name: collective-memory-db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=<MONGO_USER> # 💡 REPLACE
+      - MONGO_INITDB_ROOT_PASSWORD=<MONGO_PASSWORD> # 💡 REPLACE
+    # ports:
+    #   - "27017:27017" # Uncomment only if external access is needed
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - collective-network
+
+  # =============================================================================
+  # 4. AGENT MIND TEMPLATE (The Collective Agents)
+  # -----------------------------------------------------------------------------
+  # COPY AND PASTE THIS BLOCK FOR EACH AGENT (e.g., Planner, Developer, Tester)
+  # =============================================================================
+
+  agent-mind-template:
+    # 💡 ENSURE a Dockerfile.mind file exists in your project root
+    build:
+      context: .
+      dockerfile: Dockerfile.mind
+    container_name: <AGENT_NAME_SLUG> # 💡 REPLACE (e.g., agent-architect)
+    environment:
+      # Agent Identity
+      - MIND_NAME=<AGENT_NAME> # 💡 REPLACE (e.g., CHIEF_ARCHITECT)
+      - SPECIALIZATION=<AGENT_SPECIALIZATION> # 💡 REPLACE (e.g., coordinator, engineer)
+
+      # Infrastructure Connections (Do not change these hostnames/ports)
+      - INFERENCE_URL=http://inference-server:8000 # Connects to LLM
+      - REDIS_URL=redis://redis:6379               # Connects to Redis
+      - MONGO_URL=mongodb://<MONGO_USER>:<MONGO_PASSWORD>@mongodb:27017 # Connects to MongoDB
+
+      # Runtime & Logic
+      - PYTHON_SCRIPT=<AGENT_ENTRY_POINT>.py # 💡 REPLACE (e.g., mind_v2.py)
+      - PROJECT_ROOT=/collective-project     # Should match the mount below
+      - SECONDS_PER_DAY=300                  # (Simulated time)
+
+    # Agent services must wait for infrastructure services to start
+    depends_on:
+      - inference-server
+      - redis
+      - mongodb
+      # 💡 ADD dependencies on other agents if needed (e.g., one agent must wait for a 'coordinator' agent)
+
+    networks:
+      - collective-network
+    volumes:
+      - .:/app                             # Mounts your project code
+      - ./project:/collective-project      # Mounts the project folder the agents will work on
+
+# =============================================================================
+# NETWORKS & VOLUMES
+# =============================================================================
+
+networks:
+  collective-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  mongo-data:
+  # 💡 OPTIONAL: Add models volume if you're pulling models locally
+  # models:
